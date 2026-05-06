@@ -228,20 +228,27 @@ The AI layer operates asynchronously through Kafka so inference latency never im
 adaptive-api-shield/
 │
 ├── shield-gateway/
-│   ├── controller/
-│   ├── service/
 │   ├── kafka/
-│   ├── model/
-│   ├── config/
-│   └── security/
+│       ├── config/
+│           ├── KafkaConsumerConfig
+│           ├── KafkaProducerConfig
+│       ├── consumer/
+│           ├── RequestEventConsumer
+│       ├── event/
+│           ├── AnomalyEvent
+│           ├── RequestEvent
+│       ├── producer/
+│           ├── AnomalyEventPublisher
+│           ├── KafkaEventPublisher
+│   ├── GatewayController
+│   ├── RateLimiterService
+│   ├── TrustScoreService
+│   └── RedisConfig
 │
 ├── demo-backend/
 │
 ├── ai-analyzer/
-│   ├── consumers/
-│   ├── services/
-│   ├── api/
-│   └── models/
+│   ├── main.py
 │
 └── README.md
 ```
