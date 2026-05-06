@@ -1,0 +1,6 @@
+# Project exclude paths
+/.gradle/
+/demo-backend/build/
+/demo-backend/build/classes/java/main/
+/shield-gateway/build/
+/shield-gateway/build/classes/java/main/

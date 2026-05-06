@@ -1,0 +1,8 @@
+plugins {
+    id 'java'
+}
+
+subprojects {
+    group = 'com.divita.adaptiveapishield'
+    version = '0.0.1-SNAPSHOT'
+}
