@@ -1,369 +1,161 @@
 # Adaptive API Shield
 
-Adaptive API Shield is an event-driven API protection and anomaly analysis platform designed to demonstrate modern backend security architecture using distributed systems and AI-assisted analysis.
+An event-driven API protection and anomaly analysis platform built to explore production-grade distributed systems patterns — adaptive rate limiting, behavioral trust scoring, Kafka-based streaming pipelines, and AI-assisted incident investigation.
 
-The system combines low-latency request enforcement with asynchronous behavioral analysis. A Spring Boot gateway handles real-time API protection using Redis-backed adaptive rate limiting and trust scoring, while Kafka streams security events to downstream analyzers. A FastAPI-based AI analysis service consumes anomaly events and generates incident explanations using Groq-hosted large language models.
+The system is intentionally split into two independent execution paths: a **deterministic hot path** for low-latency enforcement and an **asynchronous cold path** for behavioral analysis. AI inference never blocks request processing.
 
-The project models architectural patterns commonly used in production API gateways, security analytics platforms, and streaming-based detection systems.
+---
 
-## Architecture Overview
+## Architecture
 
-The platform is separated into two independent execution paths.
+```
+                        ┌─────────────────────────────────────────┐
+                        │           HOT PATH (< 5ms)              │
+  Client Request ──────▶│  Spring Boot Gateway                    │──────▶ Backend API
+                        │  └─ Redis: rate limits + trust scores   │
+                        │  └─ Allow / Throttle / Block            │
+                        └──────────────┬──────────────────────────┘
+                                       │ publish event (async, non-blocking)
+                                       ▼
+                        ┌─────────────────────────────────────────┐
+                        │           COLD PATH (async)             │
+                        │  Kafka: shield.requests                 │
+                        │  └─ Anomaly Detection Consumer          │
+                        │  Kafka: shield.anomalies                │
+                        │  └─ FastAPI AI Analyzer                 │
+                        │     └─ Groq LLM → Incident Explanation  │
+                        └─────────────────────────────────────────┘
+```
 
-### Real-Time Enforcement Path
+The enforcement layer is stateless and resilient — it degrades gracefully if Kafka or the AI analyzer go down. The cold path can be upgraded, redeployed, or scaled independently without any impact on live traffic.
 
-The hot path processes live API traffic and makes low-latency protection decisions.
+---
 
-Client Request
+## Key Design Decisions
 
-→ Spring Boot Gateway
+**Why separate hot and cold paths?**
+Putting AI inference in the request path would introduce unpredictable latency and create a single point of failure. The enforcement layer stays deterministic; the AI layer operates on a best-effort async basis. This pattern mirrors production API gateway architectures where SLA compliance and analysis correctness are separate concerns.
 
-→ Redis-backed Trust and Rate Limit Checks
+**Why Redis for enforcement state?**
+Trust scores, rate limit counters, and blocklists need to be shared across horizontally scaled gateway nodes. Redis TTLs handle automatic expiration without cleanup jobs — a rate limit window resets itself, and a temporary block expires without any scheduled task.
 
-→ Allow / Throttle / Temporary Block
+**Why progressive cooldowns instead of permanent bans?**
+Fixed cooldowns are predictable — attackers simply wait for expiration and retry. Progressive cooldowns increase attacker cost exponentially while avoiding permanent lockouts that could affect legitimate users recovering from credential issues.
 
-→ Backend API
+**Why Kafka between enforcement and analysis?**
+Decoupling via Kafka means the anomaly detection consumer and AI analyzer can fall behind, restart, or be replaced without any impact on the gateway. The request stream is also replayable — useful for reprocessing historical events with new detection logic.
 
-The enforcement layer is intentionally lightweight and deterministic to ensure request processing remains fast even during high traffic conditions.
+---
 
-### Asynchronous Analysis Path
+## Core Features
 
-The cold path handles behavioral analysis and AI-assisted incident investigation.
-
-Gateway Request Events
-
-→ Kafka Event Stream
-
-→ Anomaly Detection Consumer
-
-→ Kafka Anomaly Stream
-
-→ FastAPI AI Analyzer
-
-→ Groq LLM Incident Explanation
-
-This separation allows expensive analysis operations to run independently without impacting API response latency.
-
-## System Components
-
-### Spring Boot Gateway
-
-The gateway acts as the central protection layer for incoming API traffic.
-
-Responsibilities include:
-
-• Endpoint-aware distributed rate limiting
-
-• Adaptive trust scoring
-
-• Progressive cooldown blocking
-
-• Request forwarding
-
-• Security event publishing
-
-• Kafka integration for asynchronous analytics
-
-### Redis Protection Layer
-
-Redis is used as the distributed state store for:
-
-• Rate limiting counters
-
-• Trust scores
-
-• Temporary blocklists
-
-• Progressive offense tracking
-
-Redis TTLs are used extensively to support automatic expiration and temporary cooldown behavior.
-
-### Kafka Event Pipeline
-
-Kafka is used to decouple request enforcement from anomaly analysis.
-
-Two primary event streams are used:
-
-`shield.requests`
-
-Contains request decisions, trust scores, status codes, and endpoint metadata.
-
-`shield.anomalies`
-
-Contains structured anomaly events generated by the detection engine.
-
-### FastAPI AI Analyzer
-
-The AI analyzer consumes anomaly events asynchronously and generates incident explanations using Groq-hosted language models.
-
-Responsibilities include:
-
-• Consuming anomaly events from Kafka
-
-• Generating contextual incident summaries
-
-• Explaining suspicious behavior
-
-• Recommending mitigation actions
-
-• Providing confidence estimates
-
-## Adaptive Protection Features
-
-### Endpoint-Aware Rate Limiting
-
-Different APIs use different rate limiting policies depending on sensitivity.
-
-Examples:
-
-• Login endpoints use stricter limits to reduce brute-force attacks
-
-• Read-heavy endpoints allow higher throughput
-
-• Business-sensitive endpoints use moderate thresholds
+### Adaptive Rate Limiting
+Endpoint-aware distributed rate limiting backed by Redis. Login endpoints use strict thresholds; read-heavy endpoints allow higher throughput. Counters reset automatically via TTL.
 
 ### Trust Score System
+Each client maintains a dynamic behavioral score in Redis. Successful requests increase trust; failed logins and throttle events degrade it. Clients that drop below the trust threshold are temporarily blocked with progressive cooldowns.
 
-Each client maintains a dynamic trust score.
+### Kafka Event Streaming
+Every request publishes a structured event to `shield.requests` containing client ID, endpoint, status, trust score, and timestamp. A separate consumer detects anomalous patterns and publishes to `shield.anomalies`.
 
-The score evolves based on observed behavior:
+### AI-Assisted Incident Analysis
+The FastAPI analyzer consumes anomaly events and sends structured prompts to Groq-hosted Llama 3.1. Generated incident reports include risk level, behavioral explanation, mitigation recommendations, and confidence estimate — all produced asynchronously without touching the request path.
 
-• Successful requests increase trust
+---
 
-• Failed logins reduce trust
+## Tech Stack
 
-• Repeated throttling reduces trust further
+| Layer | Technology |
+|---|---|
+| Gateway & Enforcement | Java 17, Spring Boot, Gradle |
+| Distributed State | Redis |
+| Event Streaming | Apache Kafka |
+| AI Analysis | Python, FastAPI, Groq API, Llama 3.1 |
 
-• Extremely low trust triggers temporary blocking
-
-### Progressive Cooldown Blocking
-
-Suspicious clients are not permanently banned.
-
-Instead, repeated offenses increase cooldown duration progressively.
-
-Example progression:
-
-• First offense → short cooldown
-
-• Repeated offenses → longer cooldowns
-
-• Persistent abuse → extended temporary block
-
-This approach prevents predictable retry behavior while avoiding permanent lockouts.
-
-## Event-Driven Anomaly Detection
-
-The anomaly detection pipeline consumes request events asynchronously and identifies suspicious behavioral patterns.
-
-Current anomaly detection capabilities include:
-
-• Repeated failed login attempts
-
-• Brute-force login behavior
-
-• Suspicious trust-score decay
-
-• Excessive throttling patterns
-
-The architecture is intentionally extensible so additional detection strategies can be added independently.
-
-## AI-Powered Incident Analysis
-
-The AI analyzer uses Groq-hosted LLMs to generate contextual explanations for detected anomalies.
-
-Generated analysis includes:
-
-• Risk level assessment
-
-• Explanation of suspicious behavior
-
-• Recommended mitigation actions
-
-• Confidence estimation
-
-The AI layer operates asynchronously through Kafka so inference latency never impacts live API traffic.
-
-## Technologies Used
-
-### Backend Infrastructure
-
-• Java 17
-
-• Spring Boot
-
-• Gradle
-
-• Redis
-
-• Apache Kafka
-
-### AI Analysis Layer
-
-• FastAPI
-
-• Python
-
-• Groq API
-
-• Llama 3.1
-
-### Distributed Systems Concepts
-
-• Event-driven architecture
-
-• Asynchronous processing
-
-• Distributed state management
-
-• Streaming-based anomaly detection
-
-• Progressive security enforcement
-
-• Decoupled hot and cold execution paths
+---
 
 ## Project Structure
 
-```text
+```
 adaptive-api-shield/
-│
-├── shield-gateway/
-│   ├── kafka/
-│       ├── config/
-│           ├── KafkaConsumerConfig
-│           ├── KafkaProducerConfig
-│       ├── consumer/
-│           ├── RequestEventConsumer
-│       ├── event/
-│           ├── AnomalyEvent
-│           ├── RequestEvent
-│       ├── producer/
-│           ├── AnomalyEventPublisher
-│           ├── KafkaEventPublisher
-│   ├── GatewayController
-│   ├── RateLimiterService
-│   ├── TrustScoreService
-│   └── RedisConfig
-│
-├── demo-backend/
-│
+├── shield-gateway/               # Spring Boot enforcement layer
+│   ├── GatewayController         # Request handling + forwarding
+│   ├── RateLimiterService        # Redis-backed distributed rate limiting
+│   ├── TrustScoreService         # Behavioral trust scoring + blocking
+│   ├── RedisConfig
+│   └── kafka/
+│       ├── config/               # Producer + consumer configuration
+│       ├── consumer/             # Anomaly detection consumer
+│       ├── producer/             # Request + anomaly event publishers
+│       └── event/                # RequestEvent, AnomalyEvent models
+├── demo-backend/                 # Downstream API (simulates protected service)
 ├── ai-analyzer/
-│   ├── main.py
-│
+│   └── main.py                   # FastAPI AI analysis service
 └── README.md
 ```
 
-## Running the Project
+---
+
+## Running Locally
 
 ### Prerequisites
+- Java 17
+- Python 3.10+
+- Redis
+- Apache Kafka
+- Gradle
 
-Install the following:
-
-• Java 17
-
-• Python 3.10+
-
-• Redis
-
-• Apache Kafka
-
-• Gradle
-
-## Start Redis
+### 1. Start Infrastructure
 
 ```bash
+# Redis
 redis-server
-```
 
-## Start Kafka
-
-```bash
+# Kafka (from Kafka install directory)
 bin/kafka-server-start.sh config/server.properties
-```
 
-## Create Kafka Topics
-
-```bash
+# Create topics
 bin/kafka-topics.sh --create --topic shield.requests --bootstrap-server localhost:9092
-
 bin/kafka-topics.sh --create --topic shield.anomalies --bootstrap-server localhost:9092
 ```
 
-## Start Spring Services
+### 2. Start Spring Boot Services
 
 ```bash
 ./gradlew :demo-backend:bootRun
-
 ./gradlew :shield-gateway:bootRun
 ```
 
-## Start AI Analyzer
+### 3. Start AI Analyzer
 
 ```bash
 cd ai-analyzer
-
 source .venv/bin/activate
-
 uvicorn main:app --reload --port 8090
 ```
 
-## Example Flow
+### Example Flow
 
-A suspicious login sequence flows through the system as follows:
+1. Client sends repeated failed login attempts to the gateway
+2. Gateway evaluates trust score and rate limits via Redis
+3. Request event is published to `shield.requests` (non-blocking)
+4. Anomaly consumer detects brute-force pattern
+5. Anomaly event published to `shield.anomalies`
+6. FastAPI analyzer generates an LLM-powered incident report
 
-1. A client repeatedly sends failed login attempts.
+---
 
-2. The Spring Boot gateway evaluates trust score and rate limits.
+## What's Next
 
-3. Request events are published to Kafka.
+- **Observability**: Prometheus metrics + Grafana dashboards for request rate, trust score distribution, and anomaly rate
+- **Containerization**: Docker Compose for one-command local setup
+- **Cloud deployment**: AWS EC2 with managed Kafka (Confluent Cloud)
+- **Resilience**: Circuit breaker on the async Kafka consumer
+- **Rate limiting algorithms**: Sliding window and token bucket variants
+- **Persistent storage**: Anomaly history and audit trail in PostgreSQL
 
-4. The anomaly detection consumer identifies brute-force behavior.
-
-5. An anomaly event is published to the anomaly stream.
-
-6. The FastAPI AI analyzer consumes the anomaly.
-
-7. Groq LLM generates an incident explanation and mitigation recommendation.
-
-## Design Goals
-
-The project was designed to explore:
-
-• Distributed API protection patterns
-
-• Event-driven security analytics
-
-• Adaptive enforcement mechanisms
-
-• AI-assisted incident investigation
-
-• Real-time versus asynchronous system separation
-
-• Streaming-based anomaly pipelines
-
-## Future Improvements
-
-Planned enhancements include:
-
-• Dashboard for request and anomaly visualization
-
-• Additional anomaly detection strategies
-
-• Sliding-window and token-bucket rate limiting
-
-• Multi-node deployment support
-
-• Policy recommendation engine
-
-• Vector-based anomaly similarity analysis
-
-• Persistent anomaly storage and audit history
-
-• Real-time security alerting
+---
 
 ## Author
 
-Divita Phadakale
-
-Master’s Student in Computer Science
-University of Colorado Boulder
+Divita Phadakale — M.S. Computer Science, University of Colorado Boulder

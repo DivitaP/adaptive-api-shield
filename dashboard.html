@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Adaptive API Shield — Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css" />
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #ffffff;
+            --bg2: #f5f5f3;
+            --bg3: #efefec;
+            --text: #1a1a18;
+            --text2: #5f5e5a;
+            --text3: #888780;
+            --border: rgba(0,0,0,0.1);
+            --border2: rgba(0,0,0,0.18);
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-mono: 'SF Mono', 'Fira Code', monospace;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #1c1c1a;
+                --bg2: #252523;
+                --bg3: #2e2e2b;
+                --text: #e8e6de;
+                --text2: #9c9a92;
+                --text3: #6b6a64;
+                --border: rgba(255,255,255,0.08);
+                --border2: rgba(255,255,255,0.14);
+            }
+        }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg3);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .dash { max-width: 900px; margin: 0 auto; }
+
+        .top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+        }
+
+        .title { font-size: 20px; font-weight: 500; }
+        .subtitle { font-size: 13px; color: var(--text3); margin-top: 2px; }
+
+        .badge {
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+        .badge-up      { background: #EAF3DE; color: #27500A; }
+        .badge-down    { background: #FCEBEB; color: #791F1F; }
+        .badge-checking{ background: #FAEEDA; color: #633806; }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 1.5rem;
+        }
+
+        .metric {
+            background: var(--bg2);
+            border-radius: var(--radius-md);
+            padding: 1rem;
+        }
+        .metric-label { font-size: 12px; color: var(--text3); margin-bottom: 6px; }
+        .metric-value { font-size: 26px; font-weight: 500; }
+        .metric-value.danger { color: #A32D2D; }
+        .metric-value.warn   { color: #854F0B; }
+        .metric-value.ok     { color: #3B6D11; }
+
+        .section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 1.5rem;
+        }
+
+        .card {
+            background: var(--bg);
+            border: 0.5px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 1rem 1.25rem;
+        }
+
+        .card-title {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text3);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            margin-bottom: 12px;
+        }
+
+        .lookup-row { display: flex; gap: 8px; margin-bottom: 12px; }
+
+        input[type="text"] {
+            flex: 1;
+            font-size: 14px;
+            padding: 8px 12px;
+            border: 0.5px solid var(--border2);
+            border-radius: var(--radius-md);
+            background: var(--bg);
+            color: var(--text);
+            outline: none;
+            font-family: var(--font-mono);
+        }
+
+        input[type="text"]:focus { border-color: #378ADD; box-shadow: 0 0 0 3px rgba(55,138,221,0.15); }
+
+        button {
+            font-size: 13px;
+            padding: 8px 16px;
+            border: 0.5px solid var(--border2);
+            border-radius: var(--radius-md);
+            background: var(--bg);
+            color: var(--text);
+            cursor: pointer;
+            font-family: var(--font);
+            transition: background .15s;
+        }
+        button:hover { background: var(--bg2); }
+        button:active { transform: scale(0.98); }
+
+        .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+        .status-item {
+            background: var(--bg2);
+            border-radius: var(--radius-md);
+            padding: 10px 12px;
+        }
+        .status-item-label { font-size: 11px; color: var(--text3); margin-bottom: 3px; }
+        .status-item-val   { font-size: 16px; font-weight: 500; }
+
+        .trust-bar-bg  { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+        .trust-bar-fill{ height: 100%; border-radius: 3px; transition: width .5s; }
+
+        .sim-buttons { display: flex; flex-direction: column; gap: 8px; }
+        .sim-btn { text-align: left; padding: 10px 14px; }
+        .sim-btn i { margin-right: 6px; font-size: 15px; vertical-align: -2px; }
+        .sim-btn.danger { color: #A32D2D; border-color: #F09595; }
+        .sim-btn.danger:hover { background: #FCEBEB; }
+
+        .log-wrap { max-height: 200px; overflow-y: auto; }
+        .log-entry {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 0;
+            border-bottom: 0.5px solid var(--border);
+            font-size: 13px;
+        }
+        .log-entry:last-child { border-bottom: none; }
+        .log-code { font-family: var(--font-mono); font-size: 12px; font-weight: 500; min-width: 34px; }
+        .c200 { color: #3B6D11; }
+        .c401 { color: #854F0B; }
+        .c429 { color: #854F0B; }
+        .c403 { color: #A32D2D; }
+        .c0   { color: var(--text3); }
+        .log-endpoint { color: var(--text2); font-size: 12px; font-family: var(--font-mono); flex: 1; }
+        .log-client   { font-size: 11px; color: var(--text3); }
+
+        .rate-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+        .rate-table td { padding: 8px 0; border-bottom: 0.5px solid var(--border); }
+        .rate-table tr:last-child td { border-bottom: none; }
+        .rate-table td:first-child { color: var(--text2); font-family: var(--font-mono); font-size: 12px; }
+        .rate-table td:last-child { text-align: right; }
+
+        .pill {
+            display: inline-block;
+            font-size: 11px;
+            padding: 3px 9px;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+        .pill-strict { background: #FCEBEB; color: #791F1F; }
+        .pill-med    { background: #FAEEDA; color: #633806; }
+        .pill-relax  { background: #EAF3DE; color: #27500A; }
+
+        .empty { color: var(--text3); font-size: 13px; padding: 1rem 0; text-align: center; }
+
+        @media (max-width: 600px) {
+            .metrics { grid-template-columns: 1fr 1fr; }
+            .section  { grid-template-columns: 1fr; }
+            body { padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+<div class="dash">
+
+    <div class="top">
+        <div>
+            <div class="title">Adaptive API Shield</div>
+            <div class="subtitle">Live security dashboard · localhost:8080</div>
+        </div>
+        <span class="badge badge-checking" id="gw-badge">Checking...</span>
+    </div>
+
+    <div class="metrics">
+        <div class="metric">
+            <div class="metric-label">Requests logged</div>
+            <div class="metric-value" id="m-total">0</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">Blocked (403)</div>
+            <div class="metric-value danger" id="m-blocked">0</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">Throttled (429)</div>
+            <div class="metric-value warn" id="m-throttled">0</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">Allowed (2xx)</div>
+            <div class="metric-value ok" id="m-allowed">0</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="card">
+            <div class="card-title">Client lookup</div>
+            <div class="lookup-row">
+                <input type="text" id="client-input" placeholder="client ID..." value="attacker-1" />
+                <button onclick="lookupClient()"><i class="ti ti-search" aria-hidden="true"></i> Check</button>
+            </div>
+            <div id="client-result">
+                <div class="empty">Enter a client ID to inspect trust state</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Rate limits by endpoint</div>
+            <table class="rate-table">
+                <tr><td>POST /login</td>   <td><span class="pill pill-strict">3 / 5 min</span></td></tr>
+                <tr><td>POST /orders</td>  <td><span class="pill pill-med">5 / 5 min</span></td></tr>
+                <tr><td>GET /products</td> <td><span class="pill pill-relax">10 / 5 min</span></td></tr>
+                <tr><td>default</td>       <td><span class="pill pill-med">5 / 5 min</span></td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="card">
+            <div class="card-title">Attack simulation</div>
+            <div class="sim-buttons">
+                <button class="sim-btn" onclick="simBruteForce()">
+                    <i class="ti ti-lock" aria-hidden="true"></i>Brute force login (10 attempts)
+                </button>
+                <button class="sim-btn" onclick="simFlood()">
+                    <i class="ti ti-activity" aria-hidden="true"></i>Rate limit flood — /products
+                </button>
+                <button class="sim-btn" onclick="simLegit()">
+                    <i class="ti ti-circle-check" aria-hidden="true"></i>Legitimate request — /products
+                </button>
+                <button class="sim-btn danger" onclick="resetView()">
+                    <i class="ti ti-refresh" aria-hidden="true"></i>Reset view
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Request log</div>
+            <div class="log-wrap" id="log-wrap">
+                <div class="empty" id="log-empty">No requests yet — run a simulation</div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const GW = 'http://localhost:8080';
+    let counts = { total: 0, blocked: 0, throttled: 0, allowed: 0 };
+
+    async function checkGateway() {
+        const el = document.getElementById('gw-badge');
+        try {
+            const r = await fetch(GW + '/shield/health');
+            if (r.ok) {
+                el.textContent = 'Gateway online';
+                el.className = 'badge badge-up';
+            } else {
+                throw new Error();
+            }
+        } catch {
+            el.textContent = 'Gateway offline';
+            el.className = 'badge badge-down';
+        }
+    }
+
+    function updateMetrics() {
+        document.getElementById('m-total').textContent     = counts.total;
+        document.getElementById('m-blocked').textContent   = counts.blocked;
+        document.getElementById('m-throttled').textContent = counts.throttled;
+        document.getElementById('m-allowed').textContent   = counts.allowed;
+    }
+
+    function addLog(code, endpoint, client) {
+        const wrap  = document.getElementById('log-wrap');
+        const empty = document.getElementById('log-empty');
+        if (empty) empty.remove();
+
+        counts.total++;
+        if (code >= 200 && code < 300) counts.allowed++;
+        else if (code === 429) counts.throttled++;
+        else if (code === 403) counts.blocked++;
+        updateMetrics();
+
+        const codeClass = code === 200 ? 'c200' : code === 401 ? 'c401' : code === 429 ? 'c429' : code === 403 ? 'c403' : 'c0';
+        const row = document.createElement('div');
+        row.className = 'log-entry';
+        row.innerHTML = `
+      <span class="log-code ${codeClass}">${code || 'ERR'}</span>
+      <span class="log-endpoint">${endpoint}</span>
+      <span class="log-client">${client.length > 16 ? client.slice(0, 16) + '…' : client}</span>`;
+        wrap.prepend(row);
+    }
+
+    async function lookupClient() {
+        const id = document.getElementById('client-input').value.trim();
+        if (!id) return;
+        const el = document.getElementById('client-result');
+        el.innerHTML = '<div class="empty">Loading...</div>';
+        try {
+            const r = await fetch(GW + '/shield/status/' + encodeURIComponent(id));
+            const d = await r.json();
+            const score = d.trustScore ?? 50;
+            const barColor = score > 60 ? '#639922' : score > 30 ? '#BA7517' : '#E24B4A';
+            const statusColor = d.blocked ? '#A32D2D' : '#3B6D11';
+            el.innerHTML = `
+        <div class="status-grid">
+          <div class="status-item">
+            <div class="status-item-label">Trust score</div>
+            <div class="status-item-val">${score} / 100</div>
+            <div class="trust-bar-bg">
+              <div class="trust-bar-fill" style="width:${score}%;background:${barColor}"></div>
+            </div>
+          </div>
+          <div class="status-item">
+            <div class="status-item-label">Status</div>
+            <div class="status-item-val" style="color:${statusColor}">${d.blocked ? 'Blocked' : 'Active'}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-item-label">Offenses</div>
+            <div class="status-item-val">${d.offenseCount ?? 0}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-item-label">Client ID</div>
+            <div class="status-item-val" style="font-size:11px;font-family:var(--font-mono)">${id}</div>
+          </div>
+        </div>`;
+        } catch {
+            el.innerHTML = '<div class="empty">Could not reach gateway</div>';
+        }
+    }
+
+    async function req(method, path, body, clientId) {
+        const opts = {
+            method,
+            headers: { 'X-Client-Id': clientId, 'Content-Type': 'application/json' }
+        };
+        if (body) opts.body = JSON.stringify(body);
+        try {
+            const r = await fetch(GW + path, opts);
+            addLog(r.status, path, clientId);
+            return r.status;
+        } catch {
+            addLog(0, path, clientId);
+            return 0;
+        }
+    }
+
+    async function simBruteForce() {
+        const client = 'brute-' + Math.random().toString(36).slice(2, 6);
+        for (let i = 0; i < 10; i++) {
+            await req('POST', '/login', { username: 'admin', password: 'wrong' }, client);
+            await new Promise(r => setTimeout(r, 150));
+        }
+        document.getElementById('client-input').value = client;
+        await lookupClient();
+    }
+
+    async function simFlood() {
+        const client = 'flood-' + Math.random().toString(36).slice(2, 6);
+        for (let i = 0; i < 15; i++) {
+            await req('GET', '/products', null, client);
+            await new Promise(r => setTimeout(r, 80));
+        }
+        document.getElementById('client-input').value = client;
+        await lookupClient();
+    }
+
+    async function simLegit() {
+        const client = 'legit-user';
+        await req('GET', '/products', null, client);
+        document.getElementById('client-input').value = client;
+        await lookupClient();
+    }
+
+    function resetView() {
+        counts = { total: 0, blocked: 0, throttled: 0, allowed: 0 };
+        updateMetrics();
+        const wrap = document.getElementById('log-wrap');
+        wrap.innerHTML = '<div class="empty" id="log-empty">No requests yet — run a simulation</div>';
+        document.getElementById('client-result').innerHTML = '<div class="empty">Enter a client ID to inspect trust state</div>';
+        document.getElementById('client-input').value = '';
+    }
+
+    checkGateway();
+    setInterval(checkGateway, 15000);
+</script>
+</body>
+</html>

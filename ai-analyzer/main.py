@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import threading
 
 from groq import Groq
@@ -7,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
 from kafka import KafkaConsumer
+from kafka.errors import NoBrokersAvailable
 from contextlib import asynccontextmanager
 
 load_dotenv()
@@ -18,11 +20,9 @@ async def lifespan(app: FastAPI):
         daemon=True
     )
     consumer_thread.start()
-
     yield
 
-app = FastAPI(title="Adaptive API Shield AI Analyzer",
-            lifespan=lifespan)
+app = FastAPI(title="Adaptive API Shield AI Analyzer", lifespan=lifespan)
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
@@ -74,30 +74,40 @@ def generate_ai_explanation(anomaly_data: dict):
 @app.post("/explain")
 def explain_anomaly(anomaly: AnomalyRequest):
     generate_ai_explanation(anomaly.model_dump())
+    return {"message": "AI explanation generated"}
 
-    return {
-        "message": "AI explanation generated"
-    }
 
 def consume_anomalies():
+    consumer = None
 
-    consumer = KafkaConsumer(
-        "shield.anomalies",
-        bootstrap_servers="localhost:9092",
-        auto_offset_reset="latest",
-        group_id="ai-analyzer-group",
-        value_deserializer=lambda m: json.loads(m.decode("utf-8"))
-    )
+    # Retry connecting to Kafka — it may not be ready immediately on startup
+    max_retries = 10
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"[analyzer] Connecting to Kafka (attempt {attempt}/{max_retries})...")
+            consumer = KafkaConsumer(
+                "shield.anomalies",
+                bootstrap_servers="localhost:9092",
+                auto_offset_reset="latest",
+                group_id="ai-analyzer-group",
+                value_deserializer=lambda m: json.loads(m.decode("utf-8"))
+            )
+            print("[analyzer] Kafka consumer connected successfully.")
+            break
+        except NoBrokersAvailable:
+            print(f"[analyzer] Kafka not ready yet, retrying in 5s...")
+            time.sleep(5)
 
-    print("AI Analyzer Kafka consumer started...")
+    if consumer is None:
+        print("[analyzer] ERROR: Could not connect to Kafka after all retries. Exiting consumer thread.")
+        return
+
+    print("[analyzer] Listening on shield.anomalies...")
 
     for message in consumer:
         anomaly_event = message.value
-        print(f"\nReceived anomaly event: {anomaly_event}\n")
-
+        print(f"\n[analyzer] Received anomaly event: {anomaly_event}\n")
         try:
             generate_ai_explanation(anomaly_event)
         except Exception as e:
-            print(f"Error generating AI explanation: {e}")
-
-
+            print(f"[analyzer] Error generating AI explanation: {e}")
